@@ -172,6 +172,8 @@ def run_asr(whisper_model, dataset, speakers, eval_indices, out_dir):
         hyp = whisper_model.transcribe(str(wav_path))["text"]
         refs.append(ref)
         hyps.append(hyp)
+        if i <= 5:
+            log.info(f"[converted {i}] {wav_path.name}\n    ref: {ref}\n    hyp: {hyp}")
         if i % 25 == 0:
             log.info(f"transcribed {i}/{len(wav_paths)} converted -- {eta_str(i, len(wav_paths) - i, time.time() - start)}")
 
@@ -191,8 +193,11 @@ def run_asr(whisper_model, dataset, speakers, eval_indices, out_dir):
             wave, sr, text, *_ = dataset[idx]
             torchaudio.save(str(tmp_path), wave, sr)
             top_refs.append(text)
-            top_hyps.append(whisper_model.transcribe(str(tmp_path))["text"])
+            top_hyp = whisper_model.transcribe(str(tmp_path))["text"]
+            top_hyps.append(top_hyp)
             i += 1
+            if i <= 5:
+                log.info(f"[topline {i}] speaker {speaker} idx {idx}\n    ref: {text}\n    hyp: {top_hyp}")
             if i % 25 == 0:
                 log.info(f"transcribed {i}/{n_topline} topline -- {eta_str(i, n_topline - i, time.time() - start)}")
     if tmp_path.exists():
