@@ -4,3 +4,7 @@ torchcodec
 numpy
 matplotlib
 jupyter
+jiwer
+openai-whisper
+speechbrain
+scikit-learn
