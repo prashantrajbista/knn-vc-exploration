@@ -48,55 +48,84 @@ data/libri_test_trials_f${suffix}/wav/*.wav
 `${suffix}` is an arbitrary tag for this run (e.g. `_knnvc`) — VPC's eval script diffs the
 original vs. `${suffix}`-tagged folders to compute privacy/utility deltas.
 
-**Open question to resolve before committing to a compute budget** (README text was ambiguous on
-this, needs confirming directly against `configs/` or `run_evaluation.py` in the actual repo,
-not just its docs): whether `train-clean-360` anonymization is *also* mandatory. The
-semi-informed attacker (the metric that ranks challenge submissions) retrains its own ASV system
-on anonymized data — a handful of enrollment/trial utterances likely isn't enough training data
-for that, so `train-clean-360` (360 hours) is the probable attacker-training corpus. If so,
-anonymizing it with kNN-VC (WavLM encode + kNN + HiFi-GAN vocode over 360 hours) is a
-*much* bigger compute job than Tier 2's 7800 short clips — plausibly 50-100+ hours of wall time on
-a single consumer GPU. This needs to be nailed down (by installing the toolkit and reading
-`run_evaluation.py`/`configs/` directly) before scheduling this tier, not assumed away.
+**Resolved (was an open question):** confirmed directly from `eval_post.yaml` +
+`evaluation/privacy/asv/asv_train/hparams/train_ecapa_tdnn_small.yaml` in the actual toolkit
+source — `train-clean-360` anonymization is mandatory **only** for the semi-informed (ranking)
+attacker, which retrains an ECAPA-TDNN ASV model from scratch (10 epochs, 921 speakers) on
+`data/train-clean-360${suffix}`. The ignorant attacker (`eval_pre.yaml`) uses a fixed pretrained
+`asv_orig` model with no retraining and needs only the 6 folders above. This splits the tier into
+two phases:
 
-## Files to create
+- **Phase A** (this implementation): ignorant-attacker privacy EER + WER, LibriSpeech dev/test
+  only, ~4255 short utterances — comparable in scale to Tier 2.
+- **Phase B** (later, not yet built): semi-informed/ranking attacker — additionally anonymize all
+  of `train-clean-360` (360 hours, public via OpenSLR, no password) and retrain ECAPA-TDNN on it.
+  Much bigger compute (the actual number comparable to the published VPC2024 leaderboard);
+  deliberately deferred.
+
+**Also resolved: the password gate is avoidable entirely, for Phase A.** VPC2024's
+`libri_dev`/`libri_test` raw audio download is gated behind a registration password (SFTP from
+`voiceprivacychallenge.univ-avignon.fr`). But VPC's `data.zip` (public, no password, a GitHub
+release asset) ships the *metadata* for their official enroll/trial partition — `wav.scp`,
+`utt2spk`, `trials`, `spk2gender` — referencing standard LibriSpeech utterance IDs (e.g.
+`1272-128104-0000`). Checked directly: every one of the 2321 dev-partition and 1934
+test-partition utterance IDs `data.zip` needs resolves against the `dev-clean`/`test-clean`
+already downloaded in this repo from Tiers 1-2 (100% coverage, 0 missing). So the exact official
+VPC partition can be reconstructed from data already on hand — no registration, no wait, and
+still the real official partition (not an approximation). `train-clean-360` (Phase B) is separately
+public via OpenSLR directly, also no password.
+
+**Also resolved: `00_install.sh` is Linux+CUDA-only** (hardcoded `micromamba-linux-64` binary,
+pinned CUDA 11.7 / torch 2.0.1 in an isolated micromamba env). Won't run on this Mac — the
+toolkit install + `run_evaluation.py` must run on the same cloud GPU box used for Tier 2. Data
+reconstruction and anonymization can be developed/sanity-tested locally on CPU first (both are
+plain PyTorch, no toolkit-specific dependency), then the anonymized output handed to the cloud
+box's toolkit checkout for the actual evaluation run.
+
+## Files
 
 - `docs/plan_tier_3.md` — this file.
-- `third_party/Voice-Privacy-Challenge-2024/` — the toolkit itself, cloned in per its own
-  `00_install.sh` / `env.sh` (gitignored — this is an external toolkit, not our code).
-- `scripts/tier3_pseudo_speaker.py` — the new piece. Builds a per-source-speaker (or per-utterance)
-  *pooled* matching set from multiple donor speakers instead of one real target, producing the
-  pseudo-speaker identity kNN-VC converts each source utterance into.
-- `scripts/tier3_anonymize.py` — reuses the encoder/kNN/vocoder machinery already proven in
-  `scripts/tier2_eval.py` (loudness normalization on, same pretrained WavLM + prematched
-  HiFi-GAN), but targets VPC's required folder structure and pseudo-speaker matching sets instead
-  of Tier 2's fixed real-target-speaker conversions.
+- `third_party/Voice-Privacy-Challenge-2024/` — the toolkit, cloned per its own `00_install.sh` /
+  `env.sh` (gitignored — external toolkit, not our code). Install must happen on a Linux+CUDA box
+  (the cloud GPU box from Tier 2), not this Mac.
+- `scripts/tier3_prepare_data.py` — **done, sanity-tested locally.** Downloads VPC's public
+  `data.zip` metadata and reconstructs `data/libri_{dev,test}/wav/<uttid>/<uttid>.wav` from the
+  `dev-clean`/`test-clean` already in this repo. Verified 100% utterance-ID resolution
+  (2321/2321 dev, 1934/1934 test).
+- `scripts/tier3_pseudo_speaker.py` — **done.** Pure assignment logic (no torch), separately
+  testable. Utterance-level, deterministic: each utterance's donor pool = 8 donor speakers
+  (`N_DONORS`), sampled via `random.Random(sha256(utt_id))` from all speakers in the raw pool
+  excluding the utterance's own real speaker, 3 utterances per donor (`UTTS_PER_DONOR`) as the
+  matching-set material.
+- `scripts/tier3_anonymize.py` — **done, sanity-tested locally (5-utterance smoke test, CPU).**
+  Reuses the encode → kNN-match → vocode pipeline proven in `scripts/tier2_eval.py` (loudness
+  normalization on, per the Tier 2 loudness-bug lesson), matching set built from
+  `tier3_pseudo_speaker`'s donor pool instead of one fixed real target. Caches donor WavLM
+  features across utterances (donors repeat a lot across ~4255 queries drawing 24 donor
+  utterances each). Writes the 6 required `${suffix}` folders.
+- `configs/tier3/eval_pre_librispeech_only.yaml` — **done.** Copy of the toolkit's own
+  `eval_pre.yaml` with `IEMOCAP_dev`/`IEMOCAP_test` and the `ser` step removed — Phase A only
+  needs `privacy.asv` (ignorant attacker) + `utility.asr` (WER) on `libri_dev`/`libri_test`.
 
 ## Step-by-step plan
 
-1. **Install the toolkit**, read `run_evaluation.py` and `configs/` directly to resolve the
-   `train-clean-360` question above, and confirm the exact LibriSpeech subset/speaker/utterance
-   counts VPC expects for `libri_dev_enrolls`/`libri_dev_trials_m`/`libri_dev_trials_f` and the
-   `libri_test_*` equivalents (VPC defines its own dev/test enrollment-vs-trial partition of
-   LibriSpeech dev-clean/test-clean, not the same partition Tier 2 built).
-2. **Design the pseudo-speaker assignment scheme.** Candidate approach: for each source speaker,
-   build a matching set pooled from N donor speakers (e.g. N=8-20) drawn from a background pool
-   disjoint from the trial speakers, so the k-NN converter never pulls two consecutive output
-   frames from the same donor consistently enough to reconstruct a single identity. Needs a
-   concrete, fixed selection rule (e.g. deterministic per-source-speaker hash into the donor pool)
-   so the scheme itself is reproducible and documented — not ad hoc per run.
-3. **Anonymize the 6 mandatory folders** (dev/test x enrolls/trials-m/trials-f) with
-   `scripts/tier3_anonymize.py`, reusing Tier 2's proven encode → kNN-match → vocode pipeline
-   (loudness normalization on, per the Tier 2 loudness-bug lesson) against the new pooled
-   pseudo-speaker matching sets instead of single real targets. If `train-clean-360` turns out
-   mandatory (step 1), anonymize that too — flag as the dominant cost item, and budget/schedule it
-   as its own separately-timed job given the scale difference from the 6 short-utterance folders.
-4. **Run VPC's own `run_evaluation.py`** unmodified against the anonymized folders — this is where
-   the ASV attacker-retraining (ignorant / lazy-informed / semi-informed) and WER numbers come
-   from; no custom eval code needed here, unlike Tiers 1-2 where we built the eval ourselves.
-5. **Report**: privacy (semi-informed attacker EER — the metric that ranks submissions) and WER
-   utility, and how kNN-VC-as-anonymizer compares to VPC2024's own published baseline numbers
-   (B2-B6) if those are available in `results/` in the toolkit repo.
+1. ~~Install the toolkit, resolve `train-clean-360` question~~ — done, see above.
+2. ~~Design the pseudo-speaker assignment scheme~~ — done, see `tier3_pseudo_speaker.py` above.
+   N=8 donors / 3 utterances each was picked as a reasonable starting point, not tuned — flagged
+   below as worth a small ablation later, not blocking Phase A.
+3. ~~Anonymize the 6 mandatory folders~~ — script done and sanity-tested locally; **the full
+   4255-utterance run itself still needs to happen on the cloud GPU box** (CPU-only sanity test
+   confirmed the pipeline works, but full-scale run needs GPU like Tier 2 did).
+4. **Install the toolkit on the cloud box**, run `scripts/tier3_prepare_data.py` there too (or
+   copy the reconstructed `data/libri_dev`, `data/libri_test` pools over), run
+   `scripts/tier3_anonymize.py` for the full 4255 utterances, then run VPC's own
+   `run_evaluation.py --config configs/tier3/eval_pre_librispeech_only.yaml` unmodified — this is
+   where the ignorant-attacker EER and WER numbers come from; no custom eval code needed here,
+   unlike Tiers 1-2 where the eval itself was built from scratch.
+5. **Report**: ignorant-attacker EER and WER, and how kNN-VC-as-anonymizer compares to VPC2024's
+   own published baseline numbers (B2-B6, in `results/` in the toolkit repo) — with the caveat
+   that those are semi-informed-attacker numbers (Phase B), so only roughly comparable until
+   Phase B exists.
 
 ## Verification
 
@@ -109,16 +138,17 @@ a single consumer GPU. This needs to be nailed down (by installing the toolkit a
   kNN-VC's semi-informed-attacker EER and WER land in a plausible range, not just internally
   self-consistent.
 
-## Open questions to resolve while implementing
+## Open questions still remaining
 
-- Is `train-clean-360` anonymization actually mandatory for the semi-informed (ranking) attacker
-  metric, or can a lazy-informed/ignorant-only reduced eval skip it? Resolve by reading the actual
-  toolkit source, not the README summary used to draft this plan.
-- Exact compute budget once (1) is resolved — this is the single biggest unknown in scoping this
-  tier's time/cost, potentially far larger than Tiers 1-2 combined.
-- What N (donor pool size) and selection rule for pseudo-speaker assignment gives a defensible
-  privacy/utility tradeoff — this is genuinely open design work, worth a small ablation (vary N,
-  check EER vs. WER) rather than picking one value blind.
-- Whether VPC2024 has any published numbers for a kNN-VC-like baseline already (STTTS, B3, uses a
+- **Phase B compute budget** — anonymizing `train-clean-360` (360 hours) plus an ECAPA-TDNN
+  retrain (10 epochs, 921 speakers) is the single biggest unknown left, plausibly far larger than
+  Tiers 1-2 combined. Not needed for Phase A.
+- **N=8 donors / 3 utterances each was picked, not tuned.** Worth a small ablation later (vary N,
+  check EER vs. WER tradeoff) once Phase A numbers exist as a baseline to compare against — not
+  blocking, since some fixed reasonable choice was needed to build anything at all.
+- Whether VPC2024 has published numbers for a kNN-VC-like baseline already (STTTS/B3 uses a
   not-dissimilar phone-sequence + speaker-embedding approach) that could sanity-check expected
-  EER/WER ranges before running the full pipeline.
+  EER/WER ranges — worth checking `results/` in the toolkit repo before or after the Phase A run.
+- Gender-mixing in donor pools: current assignment draws donors regardless of gender. Untested
+  whether this measurably hurts naturalness/utility vs. a gender-matched donor pool — another
+  candidate ablation once Phase A has a working baseline.

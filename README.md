@@ -7,6 +7,7 @@ conversion via k-nearest-neighbors regression in WavLM feature space).
 
 **Tier 1** — inference with pretrained checkpoints, no training. Done.
 **Tier 2** — objective WER/CER/EER reproduction of Table 1, pretrained checkpoints only, no training. Done — see [Results](#results-tier-2-vs-paper) below.
+**Tier 3** — kNN-VC as a speaker anonymizer, evaluated under VoicePrivacy Challenge 2024. Branch `tier3-vpc-anonymization`. Phase A (ignorant-attacker privacy + WER, LibriSpeech only) scripted and sanity-tested locally; full run + VPC's own eval pipeline still need to happen on a Linux+CUDA box (the toolkit's install is Linux-only). Phase B (semi-informed/ranking attacker, needs `train-clean-360` anonymized + an ECAPA-TDNN retrain) not started. See `docs/plan_tier_3.md`.
 
 ## Layout
 
@@ -26,6 +27,16 @@ conversion via k-nearest-neighbors regression in WavLM feature space).
   `data/tier2_outputs/results.json` + `tier2.log`. `--sanity` for a 2-conversion smoke test,
   `--stage convert|asr|eer` to run one stage at a time (conversion skips wavs that already exist,
   so it's resumable).
+- `docs/plan_tier_3.md` — Tier 3 plan: kNN-VC as anonymizer under VPC2024.
+- `scripts/tier3_prepare_data.py` — reconstructs VPC2024's official LibriSpeech dev/test audio
+  pool from the `dev-clean`/`test-clean` already in this repo, driven by VPC's public (no
+  password needed) partition metadata — see plan for why the password gate is avoidable.
+- `scripts/tier3_pseudo_speaker.py` — deterministic multi-donor pseudo-speaker assignment (kNN-VC
+  has no such logic natively; converting to one real target doesn't anonymize anything).
+- `scripts/tier3_anonymize.py` — anonymizes VPC2024's 6 mandatory folders with kNN-VC against the
+  pseudo-speaker pools. `--sanity` for a 5-utterance smoke test.
+- `configs/tier3/eval_pre_librispeech_only.yaml` — VPC2024 eval config for Phase A (ignorant
+  attacker + WER, IEMOCAP/`ser` dropped), to run with the toolkit's own `run_evaluation.py`.
 
 ## Setup
 

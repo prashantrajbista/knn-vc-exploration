@@ -1,0 +1,53 @@
+# Tier 3, Phase A: ignorant-attacker privacy (ASV, no retraining) + WER utility, LibriSpeech
+# only. Adapted from third_party/Voice-Privacy-Challenge-2024/configs/eval_pre.yaml with
+# IEMOCAP/ser dropped -- see docs/plan_tier_3.md. Copy next to the toolkit's own configs/
+# before running (paths below assume the toolkit's working directory).
+
+data_dir: data
+exp_dir: exp
+
+anon_data_suffix: _knnvc
+
+results_summary_path: !ref <exp_dir>/results_summary/eval_orig<anon_data_suffix>/results_orig.txt
+
+datasets:
+  - name: libri_dev
+    data: libri_dev
+    enrolls: [_enrolls]
+    trials: [_trials_f, _trials_m]
+  - name: libri_test
+    data: libri_test
+    enrolls: [_enrolls]
+    trials: [_trials_f, _trials_m]
+
+eval_steps:  # ser dropped -- needs IEMOCAP, scoped out of Phase A (see plan)
+  privacy:
+    - asv
+  utility:
+    - asr
+
+privacy:
+  asv:
+    dataset_name: [libri_dev, libri_test]
+    model_name: asv_orig
+    model_type: ecapa
+
+    evaluation:
+      model_dir: !ref <exp_dir>/<privacy[asv][model_name]>
+      results_dir: !ref <exp_dir>/<privacy[asv][model_name]>
+      distance: cosine
+      plda:
+        model_dir: null
+        train_data_dir: null
+        anon: null
+
+utility:
+  asr:
+    dataset_name: [libri_dev, libri_test]  # IEMOCAP_dev/IEMOCAP_test dropped
+    model_name: asr
+
+    evaluation:
+      model_type: EncoderASR
+      model_dir: !ref <exp_dir>/<utility[asr][model_name]>
+      eval_batchsize: 8
+      results_dir: !ref <exp_dir>/<utility[asr][model_name]>
