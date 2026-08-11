@@ -5,9 +5,7 @@ conversion via k-nearest-neighbors regression in WavLM feature space).
 
 ## Status
 
-**Tier 1 only** — inference with pretrained checkpoints, no training. See
-`docs/resource_estimate.md` for the full tier breakdown (Tier 2: train HiFi-GAN vocoder,
-Tier 3: quantitative benchmark reproduction).
+**Tier 1 only** — inference with pretrained checkpoints, no training.
 
 ## Layout
 
@@ -30,8 +28,3 @@ jupyter notebook notebooks/01_tier1_inference.ipynb
 
 LibriSpeech dev-clean (~337MB) auto-downloads into `notebooks/data/` on first run (gitignored).
 Device auto-detects `cuda` → `mps` → `cpu`.
-
-## Next step
-
-Tier 2: train the HiFi-GAN vocoder (plain + prematched variants) on LibriSpeech
-train-clean-100, per `docs/notes/knn-vc.md` ("Prematched vocoder training").
