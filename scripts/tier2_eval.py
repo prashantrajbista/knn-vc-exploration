@@ -140,7 +140,10 @@ def convert_all(knn_vc, dataset, speakers, eval_indices, speaker_to_indices, n_t
                 if tgt_speaker not in matching_set_cache:
                     log.info(f"building matching set for target speaker {tgt_speaker} (first use)")
                 matching_set, _ = get_matching_set(tgt_speaker)
-                wav = knn_vc.match(query_seq, matching_set, topk=k, tgt_loudness_db=None).cpu()
+                # tgt_loudness_db left at knn_vc.match's default (-16 dB LUFS) -- Tier 1's
+                # notebook disabled it only to diff against a hand-rolled pipeline that
+                # also skipped normalization; nothing here calls for skipping it.
+                wav = knn_vc.match(query_seq, matching_set, topk=k).cpu()
                 torchaudio.save(str(out_path), wav[None], knn_vc.sr)
                 n_done += 1
                 n_new += 1
