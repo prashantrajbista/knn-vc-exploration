@@ -30,6 +30,25 @@ PAPER_TOPLINE = {"wer": 5.96, "cer": 2.38}
 
 log = logging.getLogger("tier2")
 
+# LibriSpeech transcripts are upper-case with no punctuation ("THE QUICK BROWN FOX");
+# Whisper output is mixed-case with punctuation ("The quick brown fox."). Without
+# normalizing both to the same convention, jiwer counts every word as a substitution.
+_WORD_TRANSFORM = jiwer.Compose([
+    jiwer.ToLowerCase(), jiwer.RemovePunctuation(), jiwer.RemoveMultipleSpaces(),
+    jiwer.Strip(), jiwer.ReduceToListOfListOfWords(),
+])
+_CHAR_TRANSFORM = jiwer.Compose([
+    jiwer.ToLowerCase(), jiwer.RemovePunctuation(), jiwer.Strip(), jiwer.ReduceToListOfListOfChars(),
+])
+
+
+def wer(refs, hyps):
+    return jiwer.wer(refs, hyps, reference_transform=_WORD_TRANSFORM, hypothesis_transform=_WORD_TRANSFORM)
+
+
+def cer(refs, hyps):
+    return jiwer.cer(refs, hyps, reference_transform=_CHAR_TRANSFORM, hypothesis_transform=_CHAR_TRANSFORM)
+
 
 def setup_logging(out_dir, verbose=False):
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -156,8 +175,8 @@ def run_asr(whisper_model, dataset, speakers, eval_indices, out_dir):
         if i % 25 == 0:
             log.info(f"transcribed {i}/{len(wav_paths)} converted -- {eta_str(i, len(wav_paths) - i, time.time() - start)}")
 
-    converted_wer = 100 * jiwer.wer(refs, hyps)
-    converted_cer = 100 * jiwer.cer(refs, hyps)
+    converted_wer = 100 * wer(refs, hyps)
+    converted_cer = 100 * cer(refs, hyps)
     log.info(f"converted: WER {converted_wer:.2f} CER {converted_cer:.2f}")
 
     # Topline: Whisper directly on the original, unconverted source utterances.
@@ -179,8 +198,8 @@ def run_asr(whisper_model, dataset, speakers, eval_indices, out_dir):
     if tmp_path.exists():
         tmp_path.unlink()
 
-    topline_wer = 100 * jiwer.wer(top_refs, top_hyps)
-    topline_cer = 100 * jiwer.cer(top_refs, top_hyps)
+    topline_wer = 100 * wer(top_refs, top_hyps)
+    topline_cer = 100 * cer(top_refs, top_hyps)
     log.info(f"topline: WER {topline_wer:.2f} CER {topline_cer:.2f}")
 
     return {"wer": converted_wer, "cer": converted_cer}, {"wer": topline_wer, "cer": topline_cer}
