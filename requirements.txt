@@ -6,5 +6,7 @@ matplotlib
 jupyter
 jiwer
 openai-whisper
-speechbrain
 scikit-learn
+librosa==0.9.2
+omegaconf
+scipy

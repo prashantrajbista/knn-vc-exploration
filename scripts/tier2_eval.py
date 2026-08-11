@@ -226,8 +226,8 @@ def run_eer(spk_model, dataset, speakers, eval_indices, speaker_to_indices, out_
 
     def embed(wave):
         with torch.no_grad():
-            emb = spk_model.encode_batch(wave.to(device))
-        return emb.squeeze().cpu()
+            emb = spk_model(wave.to(device))  # (1, samples) -> (1, 256), already unit-length
+        return emb.squeeze(0).cpu()
 
     log.info(f"EER: scoring against {len(speakers)} target speakers")
     start = time.time()
@@ -316,13 +316,14 @@ def main():
         results["topline_wer_cer"] = topline
 
     if args.stage in ("eer", "all"):
-        log.info("loading pretrained x-vector speaker-verification model...")
-        from speechbrain.inference.speaker import EncoderClassifier
-        spk_model = EncoderClassifier.from_hparams(
-            source="speechbrain/spkrec-xvect-voxceleb",
-            savedir=str(REPO_ROOT / ".cache" / "spkrec-xvect-voxceleb"),
-            run_opts={"device": device},
-        )
+        # RF5/simple-speaker-embedding: GE2E speaker embedding model released by kNN-VC's
+        # first author (Matthew Baas / "rf5"), trained on VCTK+LibriSpeech+VoxCeleb1+2,
+        # self-reported LibriSpeech test-clean EER 2.95% -- matches the exact domain/metric
+        # Table 1 needs, and is a far closer proxy to the paper's own eval setup than a
+        # generic VoxCeleb x-vector.
+        log.info("loading pretrained speaker embedding model (RF5/simple-speaker-embedding)...")
+        spk_model = torch.hub.load("RF5/simple-speaker-embedding", "convgru_embedder", trust_repo=True, device=device)
+        spk_model.eval()
         log.info("starting EER stage")
         eer, n_scores = run_eer(spk_model, dataset, speakers, eval_indices, speaker_to_indices, out_dir, device)
         results["eer"] = eer
